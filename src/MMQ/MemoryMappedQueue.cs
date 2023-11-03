@@ -3,6 +3,7 @@ using System.Diagnostics.Contracts;
 using System.IO.MemoryMappedFiles;
 using System.Runtime.InteropServices;
 using MMQ.V1;
+using System.IO;
 
 namespace MMQ
 {
@@ -27,7 +28,7 @@ namespace MMQ
 			MemoryMappedFile file = null;
 			try
 			{
-				file = MemoryMappedFile.CreateNew(name, bufferSize);
+				file = MemoryMappedFile.CreateFromFile($"/dev/shm/{name}", System.IO.FileMode.OpenOrCreate, null, bufferSize);
 				var header = new Header
 				{
 					Cookie1 = Header.MagicCookieValue,
@@ -68,7 +69,7 @@ namespace MMQ
 			MemoryMappedFile file = null;
 			try
 			{
-				file = MemoryMappedFile.OpenExisting(name);
+				file = MemoryMappedFile.CreateFromFile($"/dev/shm/{name}", FileMode.Open);
 				var factory = CreateFactory(name, file);
 				return factory.CreateProducer();
 			}
@@ -89,7 +90,7 @@ namespace MMQ
 			MemoryMappedFile file = null;
 			try
 			{
-				file = MemoryMappedFile.OpenExisting(name);
+				file = MemoryMappedFile.CreateFromFile($"/dev/shm/{name}", FileMode.Open);
 				var factory = CreateFactory(name, file);
 				return factory.CreateConsumer();
 			}
@@ -102,23 +103,21 @@ namespace MMQ
 
 		private static IMemoryMappedQueueFactory CreateFactory(string name, MemoryMappedFile file)
 		{
-			var headerSize = Header.Size;
+			const int headerSize = Header.Size;
 			using (var accessor = file.CreateViewAccessor(0, headerSize))
 			{
-				Header header;
-				accessor.Read(0, out header);
+				accessor.Read(0, out Header header);
 
 				if (!header.Verify())
-					throw new InvalidOperationException(string.Format(
-						"The given name '{0}' does not point to a valid memory mapped queue. This may be because the name is wrong, the queue's memory has been overwritten by another application or due to a bug in this library.",
-						name));
+					throw new InvalidOperationException(
+						$"The given name '{name}' does not point to a valid memory mapped queue. This may be because the name is wrong, the queue's memory has been overwritten by another application or due to a bug in this library.");
 
 				var dataSize = header.FileLength - headerSize;
 				switch (header.Version)
 				{
 					case 1: return new MemoryMappedQueueFactory(name, file, headerSize, dataSize);
 					default:
-						throw new NotSupportedException(string.Format("MMQ of version '{0}' is not supported!", header.Version));
+						throw new NotSupportedException($"MMQ of version '{header.Version}' is not supported!");
 				}
 			}
 		}
